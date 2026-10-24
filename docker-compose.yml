@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: marketdb
+      POSTGRES_USER: marketuser
+      POSTGRES_PASSWORD: marketpass
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketuser -d marketdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    networks: [market-net]
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes: [redis_data:/data]
+    networks: [market-net]
+
+  productapi:
+    build: ./backend
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: postgresql://marketuser:marketpass@db:5432/marketdb
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+    networks: [market-net]
+
+  orderapi:
+    build: ./backend
+    command: ["uvicorn", "services.orders:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: {DATABASE_URL: postgresql://marketuser:marketpass@db:5432/marketdb}
+    depends_on: {db: {condition: service_healthy}, productapi: {condition: service_started}}
+    networks: [market-net]
+
+  identity:
+    build: ./backend
+    command: ["uvicorn", "services.identity:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: {DATABASE_URL: postgresql://marketuser:marketpass@db:5432/marketdb}
+    depends_on: {db: {condition: service_healthy}}
+    networks: [market-net]
+
+  filter:
+    build: ./backend
+    command: ["uvicorn", "services.filtering:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: {DATABASE_URL: postgresql://marketuser:marketpass@db:5432/marketdb}
+    depends_on: {db: {condition: service_healthy}, productapi: {condition: service_started}}
+    networks: [market-net]
+
+  admin:
+    build: ./backend
+    command: ["uvicorn", "services.admin:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: {DATABASE_URL: postgresql://marketuser:marketpass@db:5432/marketdb}
+    depends_on: {db: {condition: service_healthy}, productapi: {condition: service_started}}
+    networks: [market-net]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports: ["8080:8080"]
+    depends_on: [productapi, orderapi, identity, filter, admin]
+    networks: [market-net]
+
+networks:
+  market-net: {driver: bridge}
+volumes:
+  postgres_data:
+  redis_data:

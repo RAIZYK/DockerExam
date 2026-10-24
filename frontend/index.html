@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MarketDock — онлайн-магазин</title>
+<style>
+:root{font-family:Inter,system-ui,Arial,sans-serif;color:#202436;background:#f4f6fb}
+*{box-sizing:border-box}body{margin:0}.hero{background:linear-gradient(120deg,#18233d,#375b8f);color:white;padding:34px max(22px,calc((100% - 1100px)/2))}
+.hero h1{margin:0 0 8px;font-size:clamp(28px,4vw,42px)}.hero p{margin:0;color:#dce7ff}
+main{max-width:1100px;margin:28px auto;padding:0 20px}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+input,select,button{font:inherit;border:1px solid #d4d9e5;border-radius:10px;padding:11px 13px;background:white}
+input{flex:1;min-width:190px}button{background:#315a96;color:white;border:0;cursor:pointer}button:hover{background:#234675}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.card,.panel{background:white;border:1px solid #e5e8f0;border-radius:16px;padding:18px;box-shadow:0 5px 20px #192b4d0b}
+.card h3{margin:0 0 8px}.muted{color:#69738a}.price{font-size:23px;font-weight:750;margin:15px 0 8px}.stock{font-size:13px;color:#54705d}
+section{margin-top:28px}h2{font-size:22px}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.stat strong{display:block;font-size:25px;margin-top:8px}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.status{margin:12px 0;color:#315a96;min-height:22px}
+pre{white-space:pre-wrap;word-break:break-word;background:#101827;color:#d7e5ff;padding:14px;border-radius:12px;overflow:auto}
+footer{text-align:center;padding:28px;color:#7b8498;font-size:13px}
+</style></head>
+<body>
+<header class="hero"><h1>MarketDock</h1><p>Магазин гаджетів та аксесуарів · Docker Compose demo</p></header>
+<main>
+<div class="toolbar"><input id="search" placeholder="Пошук товару…"><select id="category"><option value="">Усі категорії</option></select><button onclick="loadProducts()">Оновити каталог</button></div>
+<div id="products" class="grid"></div>
+<section><h2>Створити товар</h2><div class="panel"><form id="productForm">
+<input name="name" placeholder="Назва товару" required minlength="2"><input name="category" placeholder="Категорія" value="Electronics" required>
+<input name="price" type="number" min="0" step="0.01" placeholder="Ціна" required><input name="stock" type="number" min="0" placeholder="Кількість на складі" required>
+<input name="description" placeholder="Опис"><button>Додати товар</button></form><div id="productStatus" class="status"></div></div></section>
+<section><h2>Оформити замовлення</h2><div class="panel"><form id="orderForm">
+<input name="customer_name" placeholder="Ім'я покупця" required minlength="2"><select name="product_id" id="orderProduct" required></select>
+<input name="quantity" type="number" min="1" value="1" required><button>Створити замовлення</button></form><div id="orderStatus" class="status"></div></div></section>
+<section><h2>Панель адміністратора</h2><div id="stats" class="stats"></div></section>
+<section><h2>Останні замовлення</h2><div id="orders" class="panel muted">Завантаження…</div></section>
+<section><h2>Стан сервісів</h2><pre id="health">Перевірка…</pre></section>
+</main><footer>MarketDock · навчальний проєкт з Docker, PostgreSQL, Redis та FastAPI</footer>
+<script>
+const API='';
+const money=n=>new Intl.NumberFormat('uk-UA',{style:'currency',currency:'EUR'}).format(Number(n));
+async function request(path,opts={}){const r=await fetch(API+path,{headers:{'Content-Type':'application/json'},...opts});const data=await r.json();if(!r.ok)throw new Error(data.detail||'Помилка запиту');return data}
+async function loadProducts(){
+ try{const q=document.querySelector('#search').value.trim(),cat=document.querySelector('#category').value;
+ const data=await request('/products?'+new URLSearchParams({...(q?{q}:{}),...(cat?{category:cat}:{})}));
+ document.querySelector('#products').innerHTML=data.items.map(p=>`<article class="card"><h3>${esc(p.name)}</h3><div class="muted">${esc(p.category)}</div><p>${esc(p.description)}</p><div class="price">${money(p.price)}</div><div class="stock">На складі: ${p.stock}</div></article>`).join('')||'<p>Товарів не знайдено.</p>';
+ const all=await request('/products');const cats=[...new Set(all.items.map(p=>p.category))];const c=document.querySelector('#category'),old=c.value;c.innerHTML='<option value="">Усі категорії</option>'+cats.map(x=>`<option>${esc(x)}</option>`).join('');c.value=old;
+ document.querySelector('#orderProduct').innerHTML=all.items.map(p=>`<option value="${p.id}">#${p.id} — ${esc(p.name)} (${p.stock} шт.)</option>`).join('');
+ }catch(e){document.querySelector('#products').innerHTML='<div class="panel">Не вдалося завантажити каталог. Перевірте, чи працюють Docker-контейнери.</div>'}
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function loadAdmin(){try{const s=await request('/admin/stats');document.querySelector('#stats').innerHTML=Object.entries({'Товарів':s.products_count,'Одиниць на складі':s.items_in_stock,'Замовлень':s.orders_count,'Виручка':money(s.revenue)}).map(([k,v])=>`<div class="panel stat"><span class="muted">${k}</span><strong>${v}</strong></div>`).join('');
+const o=await request('/orders');document.querySelector('#orders').innerHTML=o.items.length?o.items.map(x=>`<p><b>#${x.id} ${esc(x.customer_name)}</b> — ${esc(x.product_name)}, ${x.quantity} шт. · ${money(x.total)} · ${esc(x.status)}</p>`).join(''):'Замовлень поки немає.';
+document.querySelector('#health').textContent=JSON.stringify(await request('/health'),null,2)}catch(e){document.querySelector('#health').textContent=e.message}}
+document.querySelector('#productForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));f.price=Number(f.price);f.stock=Number(f.stock);try{await request('/products',{method:'POST',body:JSON.stringify(f)});document.querySelector('#productStatus').textContent='Товар додано.';e.target.reset();await refresh()}catch(x){document.querySelector('#productStatus').textContent=x.message}});
+document.querySelector('#orderForm').addEventListener('submit',async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));f.product_id=Number(f.product_id);f.quantity=Number(f.quantity);try{await request('/orders',{method:'POST',body:JSON.stringify(f)});document.querySelector('#orderStatus').textContent='Замовлення створено.';await refresh()}catch(x){document.querySelector('#orderStatus').textContent=x.message}});
+async function refresh(){await loadProducts();await loadAdmin()}
+document.querySelector('#search').addEventListener('input',loadProducts);document.querySelector('#category').addEventListener('change',loadProducts);refresh();
+</script></body></html>
